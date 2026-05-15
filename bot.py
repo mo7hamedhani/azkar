@@ -3,6 +3,7 @@
 """
 بوت تليجرام لنشر محتوى ديني في القناة
 Telegram Bot for Islamic Content Publishing
+Compatible with Railway & Local hosting
 """
 
 import os
@@ -11,9 +12,7 @@ import logging
 import random
 import sqlite3
 import asyncio
-import requests
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 
 from telegram import Bot, Update
 from telegram.constants import ParseMode
@@ -23,20 +22,54 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
 # ==================== تحميل الإعدادات ====================
-load_dotenv()
+def load_config():
+    """يحمل الإعدادات من متغيرات البيئة (Railway) أو ملف .env"""
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
-POST_INTERVAL_HOURS = int(os.getenv("POST_INTERVAL_HOURS", "3"))
-POST_AT_SPECIFIC_TIMES = os.getenv("POST_AT_SPECIFIC_TIMES", "false").lower() == "true"
-SCHEDULED_TIMES = os.getenv("SCHEDULED_TIMES", "05:00,13:00,17:00,21:00").split(",")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    config = {
+        "BOT_TOKEN": os.getenv("BOT_TOKEN"),
+        "CHANNEL_ID": os.getenv("CHANNEL_ID"),
+        "ADMIN_ID": os.getenv("ADMIN_ID"),
+        "POST_INTERVAL_HOURS": os.getenv("POST_INTERVAL_HOURS", "3"),
+        "POST_AT_SPECIFIC_TIMES": os.getenv("POST_AT_SPECIFIC_TIMES", "false").lower(),
+        "SCHEDULED_TIMES": os.getenv("SCHEDULED_TIMES", "05:00,13:00,17:00,21:00"),
+    }
+
+    if not config["BOT_TOKEN"]:
+        logger.error("❌ BOT_TOKEN غير موجود!")
+        sys.exit(1)
+
+    if not config["CHANNEL_ID"]:
+        logger.error("❌ CHANNEL_ID غير موجود!")
+        sys.exit(1)
+
+    try:
+        config["CHANNEL_ID"] = int(config["CHANNEL_ID"])
+        config["ADMIN_ID"] = int(config["ADMIN_ID"]) if config["ADMIN_ID"] else 0
+        config["POST_INTERVAL_HOURS"] = int(config["POST_INTERVAL_HOURS"])
+    except ValueError as e:
+        logger.error(f"❌ خطأ في تحويل الأرقام: {e}")
+        sys.exit(1)
+
+    return config
+
+CONFIG = load_config()
+BOT_TOKEN = CONFIG["BOT_TOKEN"]
+CHANNEL_ID = CONFIG["CHANNEL_ID"]
+ADMIN_ID = CONFIG["ADMIN_ID"]
+POST_INTERVAL_HOURS = CONFIG["POST_INTERVAL_HOURS"]
+POST_AT_SPECIFIC_TIMES = CONFIG["POST_AT_SPECIFIC_TIMES"] == "true"
+SCHEDULED_TIMES = CONFIG["SCHEDULED_TIMES"].split(",")
 
 # ==================== الإعدادات العامة ====================
 DB_FILE = "islamic_content.db"
 LOG_FILE = "bot.log"
 
-# إعداد الـ Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -54,10 +87,8 @@ class Database:
         self.init_tables()
 
     def init_tables(self):
-        """إنشاء الجداول لو مش موجودة"""
         c = self.conn.cursor()
 
-        # جدول الآيات القرآنية
         c.execute('''
             CREATE TABLE IF NOT EXISTS ayat (
                 id INTEGER PRIMARY KEY,
@@ -71,7 +102,6 @@ class Database:
             )
         ''')
 
-        # جدول الأحاديث النبوية
         c.execute('''
             CREATE TABLE IF NOT EXISTS ahadith (
                 id INTEGER PRIMARY KEY,
@@ -84,7 +114,6 @@ class Database:
             )
         ''')
 
-        # جدول الأذكار والأدعية
         c.execute('''
             CREATE TABLE IF NOT EXISTS athkar (
                 id INTEGER PRIMARY KEY,
@@ -96,7 +125,6 @@ class Database:
             )
         ''')
 
-        # جدول الفيديوهات (روابط)
         c.execute('''
             CREATE TABLE IF NOT EXISTS videos (
                 id INTEGER PRIMARY KEY,
@@ -109,7 +137,6 @@ class Database:
             )
         ''')
 
-        # جدول سجل النشر
         c.execute('''
             CREATE TABLE IF NOT EXISTS post_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,22 +147,12 @@ class Database:
             )
         ''')
 
-        # جدول الإعدادات
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        ''')
-
         self.conn.commit()
         logger.info("✅ تم تهيئة قاعدة البيانات")
 
     def seed_data(self):
-        """إضافة بيانات أولية لو الجداول فاضية"""
         c = self.conn.cursor()
 
-        # التحقق من وجود بيانات
         c.execute("SELECT COUNT(*) FROM ayat")
         if c.fetchone()[0] > 0:
             logger.info("📊 قاعدة البيانات تحتوي على بيانات بالفعل")
@@ -143,7 +160,6 @@ class Database:
 
         logger.info("📝 جاري إضافة البيانات الأولية...")
 
-        # آيات قرآنية مختارة
         ayat = [
             ("الفاتحة", 1, "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ ○ الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ ○ الرَّحْمَٰنِ الرَّحِيمِ ○ مَالِكِ يَوْمِ الدِّينِ ○ إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ ○ اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ ○ صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ", "سورة الفاتحة"),
             ("البقرة", 255, "اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَن ذَا الَّذِي يَشْفَعُ عِندَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِّنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ", "آية الكرسي"),
@@ -152,7 +168,7 @@ class Database:
             ("الفلق", 1, "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ ○ مِن شَرِّ مَا خَلَقَ ○ وَمِن شَرِّ غَاسِقٍ إِذَا وَقَبَ ○ وَمِن شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ ○ وَمِن شَرِّ حَاسِدٍ إِذَا حَسَدَ", "سورة الفلق - المعوذتين"),
             ("الناس", 1, "قُلْ أَعُوذُ بِرَبِّ النَّاسِ ○ مَلِكِ النَّاسِ ○ إِلَٰهِ النَّاسِ ○ مِن شَرِّ الْوَسْوَاسِ الْخَنَّاسِ ○ الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ ○ مِنَ الْجِنَّةِ وَالنَّاسِ", "سورة الناس - المعوذتين"),
             ("الرحمن", 13, "فَبِأَيِّ آلَاءِ رَبِّكُمَا تُكَذِّبَانِ", "تكرار في سورة الرحمن"),
-            ("يس", 82, "إِنَّمَا أَمْرُهُ إِذَا أَرَادَ شَيْئًا أَن يَقُولَ لَهُ كُن فَيَكُونُ", "سورة يس - قلب القرآن"),
+            ("يس", 82, "إِنَّمَا أَمْرُهُ إِذَا أَرَادَ شَيْئًا أَن يَقُولَ لَهُ كُن فَيَكُونُ", "سورة 36 - قلب القرآن"),
             ("الحشر", 21, "لَوْ أَنزَلْنَا هَٰذَا الْقُرْآنَ عَلَىٰ جَبَلٍ لَّرَأَيْتَهُ خَاشِعًا مُّتَصَدِّعًا مِّنْ خَشْيَةِ اللَّهِ ۚ وَتِلْكَ الْأَمْثَالُ نَضْرِبُهَا لِلنَّاسِ لَعَلَّهُمْ يَتَفَكَّرُونَ", "تعظيم القرآن"),
             ("الأنعام", 59, "وَعِندَهُ مَفَاتِحُ الْغَيْبِ لَا يَعْلَمُهَا إِلَّا هُوَ ۚ وَيَعْلَمُ مَا فِي الْبَرِّ وَالْبَحْرِ ۚ وَمَا تَسْقُطُ مِن وَرَقَةٍ إِلَّا يَعْلَمُهَا وَلَا حَبَّةٍ فِي ظُلُمَاتِ الْأَرْضِ وَلَا رَطْبٍ وَلَا يَابِسٍ إِلَّا فِي كِتَابٍ مُّبِينٍ", "علم الله المحيط"),
             ("البقرة", 152, "فَاذْكُرُونِي أَذْكُرْكُمْ وَاشْكُرُوا لِي وَلَا تَكْفُرُونِ", "وعد الله لأهل الذكر"),
@@ -163,12 +179,9 @@ class Database:
         ]
 
         for surah, ayah, text, tafsir in ayat:
-            c.execute(
-                "INSERT INTO ayat (surah, ayah_number, text, tafsir) VALUES (?, ?, ?, ?)",
-                (surah, ayah, text, tafsir)
-            )
+            c.execute("INSERT INTO ayat (surah, ayah_number, text, tafsir) VALUES (?, ?, ?, ?)",
+                      (surah, ayah, text, tafsir))
 
-        # أحاديث نبوية
         ahadith = [
             ("إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ، وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَىٰ، فَمَنْ كَانَتْ هِجْرَتُهُ إِلَىٰ دُنْيَا يُصِيبُهَا أَوْ إِلَىٰ امْرَأَةٍ يَنْكِحُهَا فَهِجْرَتُهُ إِلَىٰ مَا هَاجَرَ إِلَيْهِ", "عمر بن الخطاب رضي الله عنه", "صحيح البخاري (1) وصحيح مسلم (1907)"),
             ("بُنِيَ الإِسْلَامُ عَلَىٰ خَمْسٍ: شَهَادَةِ أَنْ لَا إِلَٰهَ إِلَّا اللَّهُ وَأَنَّ مُحَمَّدًا رَسُولُ اللَّهِ، وَإِقَامِ الصَّلَاةِ، وَإِيتَاءِ الزَّكَاةِ، وَالْحَجِّ، وَصَوْمِ رَمَضَانَ", "ابن عمر رضي الله عنهما", "صحيح البخاري (8) وصحيح مسلم (16)"),
@@ -188,12 +201,9 @@ class Database:
         ]
 
         for text, narrator, source in ahadith:
-            c.execute(
-                "INSERT INTO ahadith (text, narrator, source) VALUES (?, ?, ?)",
-                (text, narrator, source)
-            )
+            c.execute("INSERT INTO ahadith (text, narrator, source) VALUES (?, ?, ?)",
+                      (text, narrator, source))
 
-        # أذكار وأدعية
         athkar = [
             ("سُبْحَانَ اللَّهِ وَبِحَمْدِهِ: عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ", "تسبيح"),
             ("أَسْتَغْفِرُ اللَّهَ الْعَظِيمَ الَّذِي لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ وَأَتُوبُ إِلَيْهِ", "استغفار"),
@@ -213,12 +223,8 @@ class Database:
         ]
 
         for text, category in athkar:
-            c.execute(
-                "INSERT INTO athkar (text, category) VALUES (?, ?)",
-                (text, category)
-            )
+            c.execute("INSERT INTO athkar (text, category) VALUES (?, ?)", (text, category))
 
-        # روابط فيديوهات قرآنية (من مصادر موثوقة)
         videos = [
             ("سورة الفاتحة - الشيخ مشاري العفاسي", "https://youtu.be/2DpOLL4Rj5o", "1:15"),
             ("سورة البقرة كاملة - الشيخ عبد الباسط عبد الصمد", "https://youtu.be/1apX9z2Vf4U", "1:58:20"),
@@ -233,25 +239,19 @@ class Database:
         ]
 
         for title, url, duration in videos:
-            c.execute(
-                "INSERT INTO videos (title, url, duration) VALUES (?, ?, ?)",
-                (title, url, duration)
-            )
+            c.execute("INSERT INTO videos (title, url, duration) VALUES (?, ?, ?)", (title, url, duration))
 
         self.conn.commit()
         logger.info(f"✅ تم إضافة {len(ayat)} آية، {len(ahadith)} حديث، {len(athkar)} ذكر، {len(videos)} فيديو")
 
     def get_unposted(self, table_name):
-        """يجيب محتوى ما اتنشرش"""
         c = self.conn.cursor()
         c.execute(f"SELECT * FROM {table_name} WHERE posted = 0 ORDER BY RANDOM() LIMIT 1")
         return c.fetchone()
 
     def mark_posted(self, table_name, content_id):
-        """يحدد المحتوى كمنشور ويسجل في اللوج"""
         c = self.conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
         c.execute(f"UPDATE {table_name} SET posted = 1, posted_date = ?, post_count = post_count + 1 WHERE id = ?", 
                   (now, content_id))
         c.execute("INSERT INTO post_log (content_type, content_id, posted_date, status) VALUES (?, ?, ?, ?)",
@@ -259,14 +259,12 @@ class Database:
         self.conn.commit()
 
     def reset_table(self, table_name):
-        """يرجع يبدأ من الأول لو خلص المحتوى"""
         c = self.conn.cursor()
         c.execute(f"UPDATE {table_name} SET posted = 0, posted_date = NULL")
         self.conn.commit()
         logger.info(f"🔄 تم إعادة تعيين {table_name}")
 
     def get_stats(self):
-        """يجيب إحصائيات القاعدة"""
         c = self.conn.cursor()
         stats = {}
         for table in ["ayat", "ahadith", "athkar", "videos"]:
@@ -278,14 +276,8 @@ class Database:
         return stats
 
     def get_recent_posts(self, limit=10):
-        """يجيب آخر منشورات"""
         c = self.conn.cursor()
-        c.execute("""
-            SELECT content_type, content_id, posted_date, status 
-            FROM post_log 
-            ORDER BY posted_date DESC 
-            LIMIT ?
-        """, (limit,))
+        c.execute("SELECT content_type, content_id, posted_date, status FROM post_log ORDER BY posted_date DESC LIMIT ?", (limit,))
         return c.fetchall()
 
 # ==================== نظام الاختيار الذكي ====================
@@ -296,18 +288,12 @@ class SmartPicker:
         self.max_history = 4
 
     def pick_content(self):
-        """يختار محتوى بذكاء"""
         content_types = ["ayat", "ahadith", "athkar", "videos"]
-
-        # يفضل نوع مختلف عن آخر 2-3 منشورات
         available = [t for t in content_types if t not in self.recent_types[-2:]]
         if not available:
             available = content_types
 
-        # يختار عشوائي من المتاح
         chosen = random.choice(available)
-
-        # يتأكد إن فيه محتوى
         content = self.db.get_unposted(chosen)
         if not content:
             self.db.reset_table(chosen)
@@ -319,7 +305,6 @@ class SmartPicker:
                 self.recent_types.pop(0)
             return chosen, content
 
-        # لو فشل، يجرب أي نوع تاني
         for t in content_types:
             self.db.reset_table(t)
             content = self.db.get_unposted(t)
@@ -331,8 +316,6 @@ class SmartPicker:
 
 # ==================== تنسيق الرسائل ====================
 def format_content(content_type, content):
-    """يصيغ المحتوى للنشر"""
-
     if content_type == "ayat":
         _, surah, ayah, text, tafsir, _, _, _ = content
         return f"""📖 <b>آية قرآنية</b>
@@ -380,9 +363,7 @@ def format_content(content_type, content):
 
 # ==================== إرسال المنشورات ====================
 async def send_post(bot, db, picker):
-    """يرسل منشور للقناة"""
     content_type, content = picker.pick_content()
-
     if not content:
         logger.error("❌ لا يوجد محتوى متاح!")
         return False
@@ -405,7 +386,7 @@ async def send_post(bot, db, picker):
             )
 
         db.mark_posted(content_type, content[0])
-        logger.info(f"✅ تم النشر: {content_type} (ID: {content[0]}) - {datetime.now().strftime('%H:%M:%S')}")
+        logger.info(f"✅ تم النشر: {content_type} (ID: {content[0]})")
         return True
 
     except Exception as e:
@@ -414,24 +395,29 @@ async def send_post(bot, db, picker):
 
 # ==================== أوامر البوت للأدمن ====================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /start"""
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         await update.message.reply_text("⛔ هذا البوت خاص بالأدمن فقط.")
         return
 
     await update.message.reply_text(
-        "👋 أهلاً بك في بوت القناة الدينية!\n\n"
-        "الأوامر المتاحة:\n"
-        "/post - نشر منشور فوري\n"
-        "/stats - إحصائيات المحتوى\n"
-        "/logs - آخر المنشورات\n"
-        "/reset - إعادة تعيين المحتوى\n"
+        "👋 أهلاً بك في بوت القناة الدينية!
+
+"
+        "الأوامر المتاحة:
+"
+        "/post - نشر منشور فوري
+"
+        "/stats - إحصائيات المحتوى
+"
+        "/logs - آخر المنشورات
+"
+        "/reset - إعادة تعيين المحتوى
+"
         "/help - المساعدة"
     )
 
 async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /post - نشر فوري"""
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         await update.message.reply_text("⛔ غير مصرح.")
@@ -451,7 +437,6 @@ async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ فشل النشر.")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /stats - إحصائيات"""
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         await update.message.reply_text("⛔ غير مصرح.")
@@ -460,15 +445,17 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = Database()
     stats = db.get_stats()
 
-    msg = "📊 <b>إحصائيات المحتوى</b>\n\n"
+    msg = "📊 <b>إحصائيات المحتوى</b>
+
+"
     for table, data in stats.items():
         emoji = {"ayat": "📖", "ahadith": "🌟", "athkar": "🤲", "videos": "🎥"}[table]
-        msg += f"{emoji} <b>{table}:</b> {data['posted']}/{data['total']} (متبقي: {data['remaining']})\n"
+        msg += f"{emoji} <b>{table}:</b> {data['posted']}/{data['total']} (متبقي: {data['remaining']})
+"
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /logs - سجل المنشورات"""
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         await update.message.reply_text("⛔ غير مصرح.")
@@ -477,16 +464,18 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = Database()
     posts = db.get_recent_posts(10)
 
-    msg = "📋 <b>آخر 10 منشورات</b>\n\n"
+    msg = "📋 <b>آخر 10 منشورات</b>
+
+"
     for post in posts:
         content_type, content_id, date, status = post
         emoji = {"ayat": "📖", "ahadith": "🌟", "athkar": "🤲", "videos": "🎥"}[content_type]
-        msg += f"{emoji} {content_type} (ID:{content_id}) - {date}\n"
+        msg += f"{emoji} {content_type} (ID:{content_id}) - {date}
+"
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /reset - إعادة تعيين"""
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         await update.message.reply_text("⛔ غير مصرح.")
@@ -499,20 +488,19 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔄 تم إعادة تعيين جميع المحتويات!")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /help"""
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         await update.message.reply_text("⛔ غير مصرح.")
         return
 
-    help_text = """📖 <b>دليل استخدام البوت</b>
+    help_text = f"""📖 <b>دليل استخدام البوت</b>
 
 <b>الأوامر:</b>
 /start - بدء البوت
 /post - نشر منشور فوري
 /stats - عرض إحصائيات المحتوى
 /logs - عرض سجل المنشورات
-/reset - إعادة تعيين المحتوى (يخليه ينشر من الأول)
+/reset - إعادة تعيين المحتوى
 /help - هذا الدليل
 
 <b>ملاحظات:</b>
@@ -522,17 +510,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • البوت يتناوب بين الآيات والأحاديث والأذكار والفيديوهات
 
 <b>للدعم:</b>
-تواصل مع الأدمن""".format(POST_INTERVAL_HOURS=POST_INTERVAL_HOURS)
+تواصل مع الأدمن"""
 
     await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
 # ==================== الجدولة ====================
 def setup_scheduler(bot, db, picker):
-    """إعداد الجدولة الزمنية"""
     scheduler = BackgroundScheduler()
 
     if POST_AT_SPECIFIC_TIMES:
-        # نشر في أوقات محددة
         for time_str in SCHEDULED_TIMES:
             hour, minute = map(int, time_str.strip().split(":"))
             scheduler.add_job(
@@ -543,7 +529,6 @@ def setup_scheduler(bot, db, picker):
             )
             logger.info(f"⏰ تم جدولة النشر الساعة {hour}:{minute:02d}")
     else:
-        # نشر كل فترة زمنية
         scheduler.add_job(
             lambda: asyncio.run(send_post(bot, db, picker)),
             IntervalTrigger(hours=POST_INTERVAL_HOURS),
@@ -555,45 +540,36 @@ def setup_scheduler(bot, db, picker):
     scheduler.start()
     return scheduler
 
-# ==================== التشغيل الرئيسي ====================
+# ==================== التشغيل الرئيسي (بدون Polling) ====================
 async def main():
-    """الدالة الرئيسية"""
     logger.info("🚀 تشغيل بوت القناة الدينية...")
 
-    # التحقق من الإعدادات
     if not BOT_TOKEN or not CHANNEL_ID:
-        logger.error("❌ يرجى ضبط BOT_TOKEN و CHANNEL_ID في ملف .env")
+        logger.error("❌ يرجى ضبط BOT_TOKEN و CHANNEL_ID")
         return
 
-    # تهيئة القاعدة
     db = Database()
     db.seed_data()
-
-    # تهيئة الاختيار الذكي
     picker = SmartPicker(db)
 
-    # إنشاء التطبيق
-    application = Application.builder().token(BOT_TOKEN).build()
-    bot = application.bot
-
-    # إضافة الأوامر
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("post", post_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("logs", logs_command))
-    application.add_handler(CommandHandler("reset", reset_command))
-    application.add_handler(CommandHandler("help", help_command))
-
-    # إعداد الجدولة
-    scheduler = setup_scheduler(bot, db, picker)
+    # إنشاء البوت بدون Application (للـ Railway)
+    bot = Bot(token=BOT_TOKEN)
 
     # نشر أول منشور فوراً
     logger.info("🧪 جاري نشر أول منشور...")
     await send_post(bot, db, picker)
 
-    # تشغيل البوت
-    logger.info("✅ البوت يعمل الآن! اضغط Ctrl+C للإيقاف.")
-    await application.run_polling()
+    # إعداد الجدولة
+    scheduler = setup_scheduler(bot, db, picker)
+
+    logger.info("✅ البوت يعمل الآن! ينشر كل {} ساعات.".format(POST_INTERVAL_HOURS))
+
+    # إبقاء البرنامج شغال (بدون polling)
+    try:
+        while True:
+            await asyncio.sleep(3600)  # ينام ساعة ويصحى يتأكد
+    except KeyboardInterrupt:
+        logger.info("🛑 تم إيقاف البوت")
 
 if __name__ == "__main__":
     try:
