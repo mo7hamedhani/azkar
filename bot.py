@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-بوت تليجرام لنشر محتوى ديني في القناة
 Telegram Bot for Islamic Content Publishing
 Compatible with Railway & Local hosting
 """
@@ -21,10 +20,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
-# ==================== تحميل الإعدادات ====================
+# ==================== CONFIGURATION ====================
 def load_config():
-    """يحمل الإعدادات من متغيرات البيئة (Railway) أو ملف .env"""
-
     try:
         from dotenv import load_dotenv
         load_dotenv()
@@ -41,11 +38,11 @@ def load_config():
     }
 
     if not config["BOT_TOKEN"]:
-        logger.error("❌ BOT_TOKEN غير موجود!")
+        logger.error("BOT_TOKEN not found!")
         sys.exit(1)
 
     if not config["CHANNEL_ID"]:
-        logger.error("❌ CHANNEL_ID غير موجود!")
+        logger.error("CHANNEL_ID not found!")
         sys.exit(1)
 
     try:
@@ -53,7 +50,7 @@ def load_config():
         config["ADMIN_ID"] = int(config["ADMIN_ID"]) if config["ADMIN_ID"] else 0
         config["POST_INTERVAL_HOURS"] = int(config["POST_INTERVAL_HOURS"])
     except ValueError as e:
-        logger.error(f"❌ خطأ في تحويل الأرقام: {e}")
+        logger.error(f"Error converting numbers: {e}")
         sys.exit(1)
 
     return config
@@ -66,7 +63,7 @@ POST_INTERVAL_HOURS = CONFIG["POST_INTERVAL_HOURS"]
 POST_AT_SPECIFIC_TIMES = CONFIG["POST_AT_SPECIFIC_TIMES"] == "true"
 SCHEDULED_TIMES = CONFIG["SCHEDULED_TIMES"].split(",")
 
-# ==================== الإعدادات العامة ====================
+# ==================== LOGGING ====================
 DB_FILE = "islamic_content.db"
 LOG_FILE = "bot.log"
 
@@ -80,7 +77,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== قاعدة البيانات ====================
+# ==================== DATABASE ====================
 class Database:
     def __init__(self):
         self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -89,7 +86,7 @@ class Database:
     def init_tables(self):
         c = self.conn.cursor()
 
-        c.execute('''
+        c.execute("""
             CREATE TABLE IF NOT EXISTS ayat (
                 id INTEGER PRIMARY KEY,
                 surah TEXT NOT NULL,
@@ -100,9 +97,9 @@ class Database:
                 posted_date TEXT,
                 post_count INTEGER DEFAULT 0
             )
-        ''')
+        """)
 
-        c.execute('''
+        c.execute("""
             CREATE TABLE IF NOT EXISTS ahadith (
                 id INTEGER PRIMARY KEY,
                 text TEXT NOT NULL,
@@ -112,9 +109,9 @@ class Database:
                 posted_date TEXT,
                 post_count INTEGER DEFAULT 0
             )
-        ''')
+        """)
 
-        c.execute('''
+        c.execute("""
             CREATE TABLE IF NOT EXISTS athkar (
                 id INTEGER PRIMARY KEY,
                 text TEXT NOT NULL,
@@ -123,9 +120,9 @@ class Database:
                 posted_date TEXT,
                 post_count INTEGER DEFAULT 0
             )
-        ''')
+        """)
 
-        c.execute('''
+        c.execute("""
             CREATE TABLE IF NOT EXISTS videos (
                 id INTEGER PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -135,9 +132,9 @@ class Database:
                 posted_date TEXT,
                 post_count INTEGER DEFAULT 0
             )
-        ''')
+        """)
 
-        c.execute('''
+        c.execute("""
             CREATE TABLE IF NOT EXISTS post_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 content_type TEXT,
@@ -145,104 +142,108 @@ class Database:
                 posted_date TEXT,
                 status TEXT
             )
-        ''')
+        """)
 
         self.conn.commit()
-        logger.info("✅ تم تهيئة قاعدة البيانات")
+        logger.info("Database initialized")
 
     def seed_data(self):
         c = self.conn.cursor()
 
         c.execute("SELECT COUNT(*) FROM ayat")
         if c.fetchone()[0] > 0:
-            logger.info("📊 قاعدة البيانات تحتوي على بيانات بالفعل")
+            logger.info("Database already has data")
             return
 
-        logger.info("📝 جاري إضافة البيانات الأولية...")
+        logger.info("Adding initial data...")
 
+        # Quranic verses
         ayat = [
-            ("الفاتحة", 1, "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ ○ الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ ○ الرَّحْمَٰنِ الرَّحِيمِ ○ مَالِكِ يَوْمِ الدِّينِ ○ إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ ○ اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ ○ صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ", "سورة الفاتحة"),
-            ("البقرة", 255, "اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَن ذَا الَّذِي يَشْفَعُ عِندَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِّنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ", "آية الكرسي"),
-            ("البقرة", 286, "لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا ۚ لَهَا مَا كَسَبَتْ وَعَلَيْهَا مَا اكْتَسَبَتْ ۗ رَبَّنَا لَا تُؤَاخِذْنَا إِن نَّسِينَا أَوْ أَخْطَأْنَا ۚ رَبَّنَا وَلَا تَحْمِلْ عَلَيْنَا إِصْرًا كَمَا حَمَلْتَهُ عَلَى الَّذِينَ مِن قَبْلِنَا ۚ رَبَّنَا وَلَا تُحَمِّلْنَا مَا لَا طَاقَةَ لَنَا بِهِ ۖ وَاعْفُ عَنَّا وَاغْفِرْ لَنَا وَارْحَمْنَا ۚ أَنتَ مَوْلَانَا فَانصُرْنَا عَلَى الْقَوْمِ الْكَافِرِينَ", "دعاء ختام سورة البقرة"),
-            ("الإخلاص", 1, "قُلْ هُوَ اللَّهُ أَحَدٌ ○ اللَّهُ الصَّمَدُ ○ لَمْ يَلِدْ وَلَمْ يُولَدْ ○ وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ", "سورة الإخلاص - تعدل ثلث القرآن"),
-            ("الفلق", 1, "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ ○ مِن شَرِّ مَا خَلَقَ ○ وَمِن شَرِّ غَاسِقٍ إِذَا وَقَبَ ○ وَمِن شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ ○ وَمِن شَرِّ حَاسِدٍ إِذَا حَسَدَ", "سورة الفلق - المعوذتين"),
-            ("الناس", 1, "قُلْ أَعُوذُ بِرَبِّ النَّاسِ ○ مَلِكِ النَّاسِ ○ إِلَٰهِ النَّاسِ ○ مِن شَرِّ الْوَسْوَاسِ الْخَنَّاسِ ○ الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ ○ مِنَ الْجِنَّةِ وَالنَّاسِ", "سورة الناس - المعوذتين"),
-            ("الرحمن", 13, "فَبِأَيِّ آلَاءِ رَبِّكُمَا تُكَذِّبَانِ", "تكرار في سورة الرحمن"),
-            ("يس", 82, "إِنَّمَا أَمْرُهُ إِذَا أَرَادَ شَيْئًا أَن يَقُولَ لَهُ كُن فَيَكُونُ", "سورة 36 - قلب القرآن"),
-            ("الحشر", 21, "لَوْ أَنزَلْنَا هَٰذَا الْقُرْآنَ عَلَىٰ جَبَلٍ لَّرَأَيْتَهُ خَاشِعًا مُّتَصَدِّعًا مِّنْ خَشْيَةِ اللَّهِ ۚ وَتِلْكَ الْأَمْثَالُ نَضْرِبُهَا لِلنَّاسِ لَعَلَّهُمْ يَتَفَكَّرُونَ", "تعظيم القرآن"),
-            ("الأنعام", 59, "وَعِندَهُ مَفَاتِحُ الْغَيْبِ لَا يَعْلَمُهَا إِلَّا هُوَ ۚ وَيَعْلَمُ مَا فِي الْبَرِّ وَالْبَحْرِ ۚ وَمَا تَسْقُطُ مِن وَرَقَةٍ إِلَّا يَعْلَمُهَا وَلَا حَبَّةٍ فِي ظُلُمَاتِ الْأَرْضِ وَلَا رَطْبٍ وَلَا يَابِسٍ إِلَّا فِي كِتَابٍ مُّبِينٍ", "علم الله المحيط"),
-            ("البقرة", 152, "فَاذْكُرُونِي أَذْكُرْكُمْ وَاشْكُرُوا لِي وَلَا تَكْفُرُونِ", "وعد الله لأهل الذكر"),
-            ("الطلاق", 2, "وَمَن يَتَّقِ اللَّهَ يَجْعَل لَّهُ مَخْرَجًا ○ وَيَرْزُقْهُ مِنْ حَيْثُ لَا يَحْتَسِبُ ○ وَمَن يَتَوَكَّلْ عَلَى اللَّهِ فَهُوَ حَسْبُهُ ○ إِنَّ اللَّهَ بَالِغُ أَمْرِهِ ○ قَدْ جَعَلَ اللَّهُ لِكُلِّ شَيْءٍ قَدْرًا", "التقوى والتوكل"),
-            ("الشعراء", 80, "وَإِذَا مَرِضْتُ فَهُوَ يَشْفِينِ ○ وَالَّذِي يُمِيتُنِي ثُمَّ يُحْيِينِ ○ وَالَّذِي أَطْمَعُ أَن يَغْفِرَ لِي خَطِيئَتِي يَوْمَ الدِّينِ", "دعاء سيدنا إبراهيم"),
-            ("الإسراء", 23, "وَقَضَىٰ رَبُّكَ أَلَّا تَعْبُدُوا إِلَّا إِيَّاهُ وَبِالْوَالِدَيْنِ إِحْسَانًا ۚ إِمَّا يَبْلُغَنَّ عِندَكَ الْكِبَرَ أَحَدُهُمَا أَوْ كِلَاهُمَا فَلَا تَقُل لَّهُمَا أُفٍّ وَلَا تَنْهَرْهُمَا وَقُل لَّهُمَا قَوْلًا كَرِيمًا", "بر الوالدين"),
-            ("الإسراء", 24, "وَاخْفِضْ لَهُمَا جَنَاحَ الذُّلِّ مِنَ الرَّحْمَةِ وَقُل رَّبِّ ارْحَمْهُمَا كَمَا رَبَّيَانِي صَغِيرًا", "دعاء للوالدين"),
+            ("Al-Fatiha", 1, "Bismi Allahi alrrahmani alrraheemi. Alhamdu lillahi rabbi alAAalameena. Alrrahmani alrraheemi. Maliki yawmi alddeeni. Iyyaka naAAbudu wa-iyyaka nastaAAeenu. Ihdina alssirata almustaqeema. Sirata allatheena anAAamta AAalayhim ghayri almaghdoobi AAalayhim wala alddalleena", "Surah Al-Fatiha"),
+            ("Al-Baqarah", 255, "Allahu la ilaha illa huwa alhayyu alqayyoomu la takhuthuhu sinatun wala nawmun lahu ma fee alssamawati wama fee al-ardi man tha allathee yashfaAAu AAindahu illa bi-ithnihi yaAAlamu ma bayna aydeehim wama khalfahum wala yuheetoona bishay-in min AAilmihi illa bima sha-a wasiAAa kursiyyuhu alssamawati waal-arda wala yaooduhu hifzuhuma wahuwa alAAaliyyu alAAatheemu", "Ayat Al-Kursi"),
+            ("Al-Baqarah", 286, "La yukallifu Allahu nafsan illa wusAAaha laha ma kasabat waAAalayha ma iktasabat rabbana la tu-akhithna in naseena aw akhta-na rabbana wala tahmil AAalayna isran kama hamaltahu AAala allatheena min qablina rabbana wala tuhammilna ma la taqata lana bihi waoAAfu AAanna waghfir lana warhamna anta mawlana faonsurna AAala alqawmi alkafireena", "Dua at end of Al-Baqarah"),
+            ("Al-Ikhlas", 1, "Qul huwa Allahu ahadun. Allahu alssamadu. Lam yalid walam yooladu. Walam yakun lahu kufuwan ahadun", "Surah Al-Ikhlas - equals 1/3 of Quran"),
+            ("Al-Falaq", 1, "Qul aAAoothu birabbi alfalaqi. Min sharri ma khalaqa. Wamin sharri ghasiqin itha waqaba. Wamin sharri alnnaffathati fee alAAuqadi. Wamin sharri hasidin itha hasada", "Surah Al-Falaq - Al-Muawwidhatain"),
+            ("An-Nas", 1, "Qul aAAoothu birabbi alnnasi. Maliki alnnasi. Ilahi alnnasi. Min sharri alwaswasi alkhannasi. Allathee yuwaswisu fee sudoori alnnasi. Mina aljinni waalnnasi", "Surah An-Nas - Al-Muawwidhatain"),
+            ("Ar-Rahman", 13, "Fabi-ayyi ala-i rabbikuma tukaththibani", "Repeated in Surah Ar-Rahman"),
+            ("Ya-Sin", 82, "Innama amruhu itha arada shay-an an yaqoola lahu kun fayakoonu", "Surah Ya-Sin - Heart of Quran"),
+            ("Al-Hashr", 21, "Law anzalna hatha alqurana AAala jabalin laraaytahu khashiAAan mutasaddiAAan min khashyati Allahi watilka al-amthalu nadribuha lilnnasi laAAallahum yatafakkaroona", "Glorification of Quran"),
+            ("Al-An'am", 59, "WaAAindahu mafatihu alghaybi la yaAAlamuha illa huwa wayaAAlamu ma fee albarri waalbahri wama tasqutu min waraqatin illa yaAAlamuha wala habbatin fee thulumati al-ardi wala ratbin wala yabisin illa fee kitabin mubeenin", "Allah's encompassing knowledge"),
+            ("Al-Baqarah", 152, "Fathkuroonee athkurkum waoshkuroo lee wala takfuroon", "Allah's promise to those who remember Him"),
+            ("At-Talaq", 2, "Waman yattabiAA Allahu yajAAal lahu makhrajan wayarzuqhu min haythu la yahtasibu waman yatawakkal AAala Allahi fahuwa hasbuhu inna Allaha balighu amrihi qad jaAAala Allahu likulli shay-in qadran", "Taqwa and Tawakkul"),
+            ("Ash-Shu'ara", 80, "Wa-itha maridtu fahuwa yashfeeni. Waallathee yumeetunee thumma yuhyeeni. Waallathee atmaAAu an yaghfira lee khatiyatee yawma alddeeni", "Prophet Ibrahim's dua"),
+            ("Al-Isra", 23, "Waqada rabbuka alla taAAbudoo illa iyyahu wabilwalidayni ihsanan immā yablughanna AAindaka alkibara ahaduhuma aw kilahuma fala taqul lahuma uffin wala tanharhuma waqul lahuma qawlan kareeman", "Kindness to parents"),
+            ("Al-Isra", 24, "Waikhfit lahuma janaha alththulli mina alrrahmati waqul rabbi irhamhuma kama rabbayanee sagheeran", "Dua for parents"),
         ]
 
         for surah, ayah, text, tafsir in ayat:
             c.execute("INSERT INTO ayat (surah, ayah_number, text, tafsir) VALUES (?, ?, ?, ?)",
                       (surah, ayah, text, tafsir))
 
+        # Hadith
         ahadith = [
-            ("إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ، وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَىٰ، فَمَنْ كَانَتْ هِجْرَتُهُ إِلَىٰ دُنْيَا يُصِيبُهَا أَوْ إِلَىٰ امْرَأَةٍ يَنْكِحُهَا فَهِجْرَتُهُ إِلَىٰ مَا هَاجَرَ إِلَيْهِ", "عمر بن الخطاب رضي الله عنه", "صحيح البخاري (1) وصحيح مسلم (1907)"),
-            ("بُنِيَ الإِسْلَامُ عَلَىٰ خَمْسٍ: شَهَادَةِ أَنْ لَا إِلَٰهَ إِلَّا اللَّهُ وَأَنَّ مُحَمَّدًا رَسُولُ اللَّهِ، وَإِقَامِ الصَّلَاةِ، وَإِيتَاءِ الزَّكَاةِ، وَالْحَجِّ، وَصَوْمِ رَمَضَانَ", "ابن عمر رضي الله عنهما", "صحيح البخاري (8) وصحيح مسلم (16)"),
-            ("مَنْ صَلَّىٰ عَلَيَّ صَلَاةً وَاحِدَةً صَلَّىٰ اللَّهُ عَلَيْهِ عَشْرًا", "أبو هريرة رضي الله عنه", "صحيح مسلم (384)"),
-            ("لَا يُؤْمِنُ أَحَدُكُمْ حَتَّىٰ يُحِبَّ لِأَخِيهِ مَا يُحِبُّ لِنَفْسِهِ", "أنس بن مالك رضي الله عنه", "صحيح البخاري (13) وصحيح مسلم (45)"),
-            ("مَنْ يُرِدِ اللَّهُ بِهِ خَيْرًا يُفَقِّهْهُ فِي الدِّينِ", "مُعَاوِيَةَ رضي الله عنه", "صحيح البخاري (71)"),
-            ("الدِّينُ النَّصِيحَةُ. قُلْنَا: لِمَنْ؟ قَالَ: لِلَّهِ وَلِكِتَابِهِ وَلِرَسُولِهِ وَلِأَئِمَّةِ الْمُسْلِمِينَ وَعَامَّتِهِمْ", "تميم الداري رضي الله عنه", "صحيح مسلم (55)"),
-            ("مَنْ يَعْصِ اللَّهَ وَرَسُولَهُ فَقَدْ ضَلَّ ضَلَالًا مُبِينًا", "أبو هريرة رضي الله عنه", "صحيح البخاري"),
-            ("إِنَّ اللَّهَ طَيِّبٌ لَا يَقْبَلُ إِلَّا طَيِّبًا", "أبو هريرة رضي الله عنه", "صحيح مسلم (1015)"),
-            ("الْمُسْلِمُ مَنْ سَلِمَ الْمُسْلِمُونَ مِنْ لِسَانِهِ وَيَدِهِ، وَالْمُهَاجِرُ مَنْ هَجَرَ مَا نَهَىٰ اللَّهُ عَنْهُ", "عبد الله بن عمرو رضي الله عنهما", "صحيح البخاري (10)"),
-            ("مَنْ كَانَ يُؤْمِنُ بِاللَّهِ وَالْيَوْمِ الْآخِرِ فَلْيَقُلْ خَيْرًا أَوْ لِيَصْمُتْ", "أبو هريرة رضي الله عنه", "صحيح البخاري (6018) وصحيح مسلم (47)"),
-            ("تَبَسُّمُكَ فِي وَجْهِ أَخِيكَ لَكَ صَدَقَةٌ", "أبو ذر رضي الله عنه", "الترمذي (1956)"),
-            ("خَيْرُكُمْ مَنْ تَعَلَّمَ الْقُرْآنَ وَعَلَّمَهُ", "عثمان بن عفان رضي الله عنه", "صحيح البخاري (5027)"),
-            ("الرَّاحِمُونَ يَرْحَمُهُمُ الرَّحْمَٰنُ، ارْحَمُوا مَنْ فِي الْأَرْضِ يَرْحَمْكُمْ مَنْ فِي السَّمَاءِ", "عبد الله بن عمرو رضي الله عنهما", "الترمذي (1924)"),
-            ("مَنْ لَا يَرْحَمِ النَّاسَ لَا يَرْحَمْهُ اللَّهُ", "أبو هريرة رضي الله عنه", "صحيح البخاري (7376) وصحيح مسلم (2319)"),
-            ("الْكَلِمَةُ الطَّيِّبَةُ صَدَقَةٌ", "أبو هريرة رضي الله عنه", "صحيح البخاري (2989) وصحيح مسلم (1009)"),
+            ("Innama al-aAAmalu bialnniyati wa-innama likulli imri-in ma nawa fa-man kanat hijratuhu ila dunya yuseebuha aw ila imra-atin yankihuha fa-hijratuhu ila ma hajara ilayhi", "Umar ibn Al-Khattab RA", "Sahih Al-Bukhari (1) & Sahih Muslim (1907)"),
+            ("Buniya al-islamu AAala khamsin: shahadati an la ilaha illa Allahu wa-anna Muhammadan rasoolu Allahi wa-iqami alssalati wa-ita-i alzzakati wa-alhajji wa-sawmi ramadana", "Ibn Umar RA", "Sahih Al-Bukhari (8) & Sahih Muslim (16)"),
+            ("Man salla AAalayya salatan wahidatan salla Allahu AAalayhi AAashran", "Abu Hurairah RA", "Sahih Muslim (384)"),
+            ("La yu-minu ahadukum hatta yuhibba li-akheehi ma yuhibbu li-nafsihi", "Anas ibn Malik RA", "Sahih Al-Bukhari (13) & Sahih Muslim (45)"),
+            ("Man yaridi Allahu bihi khayran yufaqqihhu fee alddeeni", "Muawiyah RA", "Sahih Al-Bukhari (71)"),
+            ("Alddeenu alnnaseehatu. Qulna: li-man? Qala: lillahi wa-li-kitabihi wa-li-rasoolihi wa-li-aimmati almuslimeena wa-AAammatihim", "Tamim Al-Dari RA", "Sahih Muslim (55)"),
+            ("Man yaAAsi Allaha wa-rasoolahu faqad dalla dalalan mubeenan", "Abu Hurairah RA", "Sahih Al-Bukhari"),
+            ("Inna Allaha tayyibun la yaqbalu illa tayyiban", "Abu Hurairah RA", "Sahih Muslim (1015)"),
+            ("Almuslimu man salima almuslimoona min lisanihee wa-yadihi wa-almuhajiru man hajara ma nahaa Allahu AAanhu", "Abdullah ibn Amr RA", "Sahih Al-Bukhari (10)"),
+            ("Man kana yu-minu bi-Allahi wa-al-yawmi al-akhiri fa-liyaqul khayran aw li-yasmut", "Abu Hurairah RA", "Sahih Al-Bukhari (6018) & Sahih Muslim (47)"),
+            ("Tabassumuka fee wajhi akheeka laka sadaqatun", "Abu Dharr RA", "Tirmidhi (1956)"),
+            ("Khayrukum man taAAallama alqurana wa-AAallamahu", "Uthman ibn Affan RA", "Sahih Al-Bukhari (5027)"),
+            ("Alrrahimoona yarhamuhumu alrrahmanu irhamoo man fee al-ardi yarhamkum man fee alssama-i", "Abdullah ibn Amr RA", "Tirmidhi (1924)"),
+            ("Man la yarhami alnnasa la yarhamahu Allahu", "Abu Hurairah RA", "Sahih Al-Bukhari (7376) & Sahih Muslim (2319)"),
+            ("Alkalimatu alttayyibatu sadaqatun", "Abu Hurairah RA", "Sahih Al-Bukhari (2989) & Sahih Muslim (1009)"),
         ]
 
         for text, narrator, source in ahadith:
             c.execute("INSERT INTO ahadith (text, narrator, source) VALUES (?, ?, ?)",
                       (text, narrator, source))
 
+        # Athkar
         athkar = [
-            ("سُبْحَانَ اللَّهِ وَبِحَمْدِهِ: عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ", "تسبيح"),
-            ("أَسْتَغْفِرُ اللَّهَ الْعَظِيمَ الَّذِي لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ وَأَتُوبُ إِلَيْهِ", "استغفار"),
-            ("اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَىٰ سَيِّدِنَا مُحَمَّدٍ", "صلاة على النبي"),
-            ("لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ", "ذكر"),
-            ("اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَىٰ عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ", "دعاء الصباح"),
-            ("بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ، وَهُوَ السَّمِيعُ الْعَلِيمُ", "أذكار الصباح والمساء"),
-            ("رَضِيتُ بِاللَّهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ صَلَّىٰ اللَّهُ عَلَيْهِ وَسَلَّمَ نَبِيًّا", "رضا"),
-            ("سُبْحَانَ اللَّهِ وَبِحَمْدِهِ سُبْحَانَ اللَّهِ الْعَظِيمِ", "تسبيح"),
-            ("حَسْبُنَا اللَّهُ وَنِعْمَ الْوَكِيلُ", "توكل"),
-            ("لَا إِلَٰهَ إِلَّا أَنْتَ سُبْحَانَكَ إِنِّي كُنْتُ مِنَ الظَّالِمِينَ", "دعاء يونس"),
-            ("اللَّهُمَّ إِنِّي أَسْأَلُكَ عِلْمًا نَافِعًا، وَرِزْقًا طَيِّبًا، وَعَمَلًا مُتَقَبَّلًا", "دعاء"),
-            ("أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ", "استعاذة"),
-            ("اللَّهُمَّ أَجِرْنِي مِنَ النَّارِ", "دعاء"),
-            ("اللَّهُمَّ اغْفِرْ لِي وَلِوَالِدَيَّ وَلِلْمُؤْمِنِينَ يَوْمَ يَقُومُ الْحِسَابُ", "دعاء"),
-            ("سُبْحَانَ اللَّهِ، وَالْحَمْدُ لِلَّهِ، وَلَا إِلَٰهَ إِلَّا اللَّهُ، وَاللَّهُ أَكْبَرُ", "تكبيرات"),
+            ("Subhana Allahi wa-bi-hamdihi: AAadada khalqihi wa-rida nafsihi wa-zinata AAarshihi wa-midada kalimatihi", "Tasbeeh"),
+            ("Astaghfiru Allaha alAAatheema allathee la ilaha illa huwa alhayyu alqayyoomu wa-atubu ilayhi", "Istighfar"),
+            ("Allahumma salli wa-sallim wa-barik AAala sayyidina Muhammadin", "Salat on Prophet"),
+            ("La hawla wala quwwata illa bi-Allahi", "Dhikr"),
+            ("Allahumma anta rabbi la ilaha illa anta khalaqtanee wa-ana AAabduka wa-ana AAala aahdika wa-waAAdika ma istataAAtu aAAoothu bika min sharri ma sanaAAtu aboo-u laka bi-niAAamatika AAalayya wa-aboo-u bi-dhanbee fa-ighfir lee fa-innahu la yaghfiru aldhdhunuba illa anta", "Morning Dua"),
+            ("Bismi Allahi allathee la yadurru maAAa ismihi shay-un fee al-ardi wala fee alssama-i wa-huwa alssameeAAu alAAaleemu", "Morning & Evening Dhikr"),
+            ("Radeetu bi-Allahi rabban wa-bi-al-islami deenan wa-bi-Muhammadin salla Allahu AAalayhi wa-sallam nabiyyan", "Rida"),
+            ("Subhana Allahi wa-bi-hamdihi subhana Allahi alAAatheemi", "Tasbeeh"),
+            ("Hasbuna Allahu wa-niAAma alwakeelu", "Tawakkul"),
+            ("La ilaha illa anta subhanaka innee kuntu mina alththalimeena", "Dua of Yunus"),
+            ("Allahumma innee as-aluka AAilman nafiAAan wa-rizqan tayyiban wa-AAamalan mutaqabbalan", "Dua"),
+            ("aAAoothu bi-Allahi mina alshshaytani alrrajeemi", "Isti'adha"),
+            ("Allahumma ajirnee mina alnnari", "Dua"),
+            ("Allahumma ighfir lee wa-li-walidayya wa-lilmu-mineena yawma yaqoomu alhisabu", "Dua"),
+            ("Subhana Allahi wa-alhamdu lillahi wa-la ilaha illa Allahu wa-Allahu akbaru", "Takbeerat"),
         ]
 
         for text, category in athkar:
             c.execute("INSERT INTO athkar (text, category) VALUES (?, ?)", (text, category))
 
+        # Videos
         videos = [
-            ("سورة الفاتحة - الشيخ مشاري العفاسي", "https://youtu.be/2DpOLL4Rj5o", "1:15"),
-            ("سورة البقرة كاملة - الشيخ عبد الباسط عبد الصمد", "https://youtu.be/1apX9z2Vf4U", "1:58:20"),
-            ("آية الكرسي - الشيخ السديس", "https://youtu.be/3QZ8g8v8Zz8", "2:30"),
-            ("سورة يس - الشيخ ماهر المعيقلي", "https://youtu.be/4Rz8Z8ZzZz8", "12:45"),
-            ("سورة الرحمن - الشيخ ياسر الدوسري", "https://youtu.be/5Sz9Z9ZzZz9", "18:30"),
-            ("سورة الواقعة - الشيخ مشاري العفاسي", "https://youtu.be/6Tz0T0T0T0T", "10:15"),
-            ("سورة الملك - الشيخ فارس عباد", "https://youtu.be/7Uu1U1U1U1U", "8:45"),
-            ("سورة الكهف - الشيخ ناصر القطامي", "https://youtu.be/8Vv2V2V2V2V", "22:10"),
-            ("تجويد سورة الإخلاص - الشيخ المنشاوي", "https://youtu.be/9Ww3W3W3W3W", "1:00"),
-            ("دعاء القنوت - الشيخ محمد جبريل", "https://youtu.be/0Xx4X4X4X4X", "5:20"),
+            ("Surah Al-Fatiha - Sheikh Mishary Alafasy", "https://youtu.be/2DpOLL4Rj5o", "1:15"),
+            ("Surah Al-Baqarah Complete - Sheikh Abdul Basit", "https://youtu.be/1apX9z2Vf4U", "1:58:20"),
+            ("Ayat Al-Kursi - Sheikh Al-Sudais", "https://youtu.be/3QZ8g8v8Zz8", "2:30"),
+            ("Surah Ya-Sin - Sheikh Maher Al-Muaiqly", "https://youtu.be/4Rz8Z8ZzZz8", "12:45"),
+            ("Surah Ar-Rahman - Sheikh Yasser Al-Dosari", "https://youtu.be/5Sz9Z9ZzZz9", "18:30"),
+            ("Surah Al-Waqi'ah - Sheikh Mishary Alafasy", "https://youtu.be/6Tz0T0T0T0T", "10:15"),
+            ("Surah Al-Mulk - Sheikh Fares Abbad", "https://youtu.be/7Uu1U1U1U1U", "8:45"),
+            ("Surah Al-Kahf - Sheikh Nasser Al-Qatami", "https://youtu.be/8Vv2V2V2V2V", "22:10"),
+            ("Tajweed Surah Al-Ikhlas - Sheikh Minshawi", "https://youtu.be/9Ww3W3W3W3W", "1:00"),
+            ("Dua Al-Qunoot - Sheikh Muhammad Jibreel", "https://youtu.be/0Xx4X4X4X4X", "5:20"),
         ]
 
         for title, url, duration in videos:
             c.execute("INSERT INTO videos (title, url, duration) VALUES (?, ?, ?)", (title, url, duration))
 
         self.conn.commit()
-        logger.info(f"✅ تم إضافة {len(ayat)} آية، {len(ahadith)} حديث، {len(athkar)} ذكر، {len(videos)} فيديو")
+        logger.info(f"Added {len(ayat)} ayat, {len(ahadith)} hadith, {len(athkar)} athkar, {len(videos)} videos")
 
     def get_unposted(self, table_name):
         c = self.conn.cursor()
@@ -262,7 +263,7 @@ class Database:
         c = self.conn.cursor()
         c.execute(f"UPDATE {table_name} SET posted = 0, posted_date = NULL")
         self.conn.commit()
-        logger.info(f"🔄 تم إعادة تعيين {table_name}")
+        logger.info(f"Reset {table_name}")
 
     def get_stats(self):
         c = self.conn.cursor()
@@ -280,7 +281,7 @@ class Database:
         c.execute("SELECT content_type, content_id, posted_date, status FROM post_log ORDER BY posted_date DESC LIMIT ?", (limit,))
         return c.fetchall()
 
-# ==================== نظام الاختيار الذكي ====================
+# ==================== SMART PICKER ====================
 class SmartPicker:
     def __init__(self, db):
         self.db = db
@@ -314,58 +315,58 @@ class SmartPicker:
 
         return None, None
 
-# ==================== تنسيق الرسائل ====================
+# ==================== MESSAGE FORMATTING ====================
 def format_content(content_type, content):
     if content_type == "ayat":
         _, surah, ayah, text, tafsir, _, _, _ = content
-        return f"""📖 <b>آية قرآنية</b>
+        return f"""📖 <b>Quranic Verse</b>
 
 {text}
 
-📍 <i>{surah} - الآية {ayah}</i>
+📍 <i>{surah} - Ayah {ayah}</i>
 📝 <i>{tafsir}</i>
 
-#آيات #قرآن #تدبر #آية_اليوم"""
+#Ayat #Quran #Tadabbur"""
 
     elif content_type == "ahadith":
         _, text, narrator, source, _, _, _ = content
-        return f"""🌟 <b>حديث شريف</b>
+        return f"""🌟 <b>Hadith</b>
 
 ❝ {text} ❞
 
-📚 رواه: <i>{narrator}</i>
-📖 المصدر: <i>{source}</i>
+📚 Narrated by: <i>{narrator}</i>
+📖 Source: <i>{source}</i>
 
-#أحاديث #سنة #نبوية #حديث_اليوم"""
+#Hadith #Sunnah #Prophetic"""
 
     elif content_type == "athkar":
         _, text, category, _, _, _ = content
-        return f"""🤲 <b>ذكر طيب</b>
+        return f"""🤲 <b>Dhikr</b>
 
 {text}
 
-📍 <i>التصنيف: {category}</i>
+📍 <i>Category: {category}</i>
 
-#أذكار #أدعية #ذكر_الله #ذكر_اليوم"""
+#Athkar #Adhkar #Dhikr"""
 
     elif content_type == "videos":
         _, title, url, duration, _, _, _ = content
-        return f"""🎥 <b>تلاوة قرآنية</b>
+        return f"""🎥 <b>Quran Recitation</b>
 
 📌 {title}
-⏱️ المدة: {duration}
+⏱️ Duration: {duration}
 
-🔗 <a href="{url}">اضغط هنا للمشاهدة</a>
+🔗 <a href="{url}">Click here to watch</a>
 
-#قرآن #تلاوة #فيديو #تلاوة_اليوم"""
+#Quran #Tilawa #Video"""
 
     return ""
 
-# ==================== إرسال المنشورات ====================
+# ==================== POSTING ====================
 async def send_post(bot, db, picker):
     content_type, content = picker.pick_content()
     if not content:
-        logger.error("❌ لا يوجد محتوى متاح!")
+        logger.error("No content available!")
         return False
 
     message = format_content(content_type, content)
@@ -386,44 +387,37 @@ async def send_post(bot, db, picker):
             )
 
         db.mark_posted(content_type, content[0])
-        logger.info(f"✅ تم النشر: {content_type} (ID: {content[0]})")
+        logger.info(f"Posted: {content_type} (ID: {content[0]})")
         return True
 
     except Exception as e:
-        logger.error(f"❌ خطأ في النشر: {e}")
+        logger.error(f"Error posting: {e}")
         return False
 
-# ==================== أوامر البوت للأدمن ====================
+# ==================== ADMIN COMMANDS ====================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔ هذا البوت خاص بالأدمن فقط.")
+        await update.message.reply_text("This bot is for admin only.")
         return
 
     await update.message.reply_text(
-        "👋 أهلاً بك في بوت القناة الدينية!
-
-"
-        "الأوامر المتاحة:
-"
-        "/post - نشر منشور فوري
-"
-        "/stats - إحصائيات المحتوى
-"
-        "/logs - آخر المنشورات
-"
-        "/reset - إعادة تعيين المحتوى
-"
-        "/help - المساعدة"
+        "Welcome to Islamic Channel Bot!\n\n"
+        "Commands:\n"
+        "/post - Post immediately\n"
+        "/stats - Content statistics\n"
+        "/logs - Recent posts\n"
+        "/reset - Reset all content\n"
+        "/help - Help"
     )
 
 async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔ غير مصرح.")
+        await update.message.reply_text("Unauthorized.")
         return
 
-    await update.message.reply_text("⏳ جاري النشر...")
+    await update.message.reply_text("Posting...")
 
     bot = context.bot
     db = Database()
@@ -432,89 +426,83 @@ async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success = await send_post(bot, db, picker)
 
     if success:
-        await update.message.reply_text("✅ تم النشر بنجاح!")
+        await update.message.reply_text("Posted successfully!")
     else:
-        await update.message.reply_text("❌ فشل النشر.")
+        await update.message.reply_text("Failed to post.")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔ غير مصرح.")
+        await update.message.reply_text("Unauthorized.")
         return
 
     db = Database()
     stats = db.get_stats()
 
-    msg = "📊 <b>إحصائيات المحتوى</b>
-
-"
+    msg = "📊 <b>Content Statistics</b>\n\n"
     for table, data in stats.items():
         emoji = {"ayat": "📖", "ahadith": "🌟", "athkar": "🤲", "videos": "🎥"}[table]
-        msg += f"{emoji} <b>{table}:</b> {data['posted']}/{data['total']} (متبقي: {data['remaining']})
-"
+        msg += f"{emoji} <b>{table}:</b> {data['posted']}/{data['total']} (remaining: {data['remaining']})\n"
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔ غير مصرح.")
+        await update.message.reply_text("Unauthorized.")
         return
 
     db = Database()
     posts = db.get_recent_posts(10)
 
-    msg = "📋 <b>آخر 10 منشورات</b>
-
-"
+    msg = "📋 <b>Last 10 Posts</b>\n\n"
     for post in posts:
         content_type, content_id, date, status = post
         emoji = {"ayat": "📖", "ahadith": "🌟", "athkar": "🤲", "videos": "🎥"}[content_type]
-        msg += f"{emoji} {content_type} (ID:{content_id}) - {date}
-"
+        msg += f"{emoji} {content_type} (ID:{content_id}) - {date}\n"
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔ غير مصرح.")
+        await update.message.reply_text("Unauthorized.")
         return
 
     db = Database()
     for table in ["ayat", "ahadith", "athkar", "videos"]:
         db.reset_table(table)
 
-    await update.message.reply_text("🔄 تم إعادة تعيين جميع المحتويات!")
+    await update.message.reply_text("All content reset!")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔ غير مصرح.")
+        await update.message.reply_text("Unauthorized.")
         return
 
-    help_text = f"""📖 <b>دليل استخدام البوت</b>
+    help_text = f"""📖 <b>Bot Guide</b>
 
-<b>الأوامر:</b>
-/start - بدء البوت
-/post - نشر منشور فوري
-/stats - عرض إحصائيات المحتوى
-/logs - عرض سجل المنشورات
-/reset - إعادة تعيين المحتوى
-/help - هذا الدليل
+<b>Commands:</b>
+/start - Start bot
+/post - Post immediately
+/stats - Content statistics
+/logs - Post history
+/reset - Reset content
+/help - This guide
 
-<b>ملاحظات:</b>
-• البوت ينشر تلقائياً كل {POST_INTERVAL_HOURS} ساعات
-• المحتوى لا يتكرر حتى ينتهي كل المحتوى
-• يمكنك النشر اليدوي بأمر /post
-• البوت يتناوب بين الآيات والأحاديث والأذكار والفيديوهات
+<b>Notes:</b>
+• Bot posts automatically every {POST_INTERVAL_HOURS} hours
+• Content does not repeat until all is used
+• Manual posting with /post
+• Bot rotates between ayat, hadith, athkar, videos
 
-<b>للدعم:</b>
-تواصل مع الأدمن"""
+<b>Support:</b>
+Contact admin"""
 
     await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
-# ==================== الجدولة ====================
+# ==================== SCHEDULER ====================
 def setup_scheduler(bot, db, picker):
     scheduler = BackgroundScheduler()
 
@@ -525,56 +513,52 @@ def setup_scheduler(bot, db, picker):
                 lambda: asyncio.run(send_post(bot, db, picker)),
                 CronTrigger(hour=hour, minute=minute),
                 id=f"post_{hour}_{minute}",
-                name=f"نشر الساعة {hour}:{minute:02d}"
+                name=f"Post at {hour}:{minute:02d}"
             )
-            logger.info(f"⏰ تم جدولة النشر الساعة {hour}:{minute:02d}")
+            logger.info(f"Scheduled post at {hour}:{minute:02d}")
     else:
         scheduler.add_job(
             lambda: asyncio.run(send_post(bot, db, picker)),
             IntervalTrigger(hours=POST_INTERVAL_HOURS),
             id="auto_post",
-            name=f"نشر كل {POST_INTERVAL_HOURS} ساعات"
+            name=f"Post every {POST_INTERVAL_HOURS} hours"
         )
-        logger.info(f"⏰ تم جدولة النشر كل {POST_INTERVAL_HOURS} ساعات")
+        logger.info(f"Scheduled post every {POST_INTERVAL_HOURS} hours")
 
     scheduler.start()
     return scheduler
 
-# ==================== التشغيل الرئيسي (بدون Polling) ====================
+# ==================== MAIN ====================
 async def main():
-    logger.info("🚀 تشغيل بوت القناة الدينية...")
+    logger.info("Starting Islamic Channel Bot...")
 
     if not BOT_TOKEN or not CHANNEL_ID:
-        logger.error("❌ يرجى ضبط BOT_TOKEN و CHANNEL_ID")
+        logger.error("Please set BOT_TOKEN and CHANNEL_ID")
         return
 
     db = Database()
     db.seed_data()
     picker = SmartPicker(db)
 
-    # إنشاء البوت بدون Application (للـ Railway)
     bot = Bot(token=BOT_TOKEN)
 
-    # نشر أول منشور فوراً
-    logger.info("🧪 جاري نشر أول منشور...")
+    logger.info("Posting first content...")
     await send_post(bot, db, picker)
 
-    # إعداد الجدولة
     scheduler = setup_scheduler(bot, db, picker)
 
-    logger.info("✅ البوت يعمل الآن! ينشر كل {} ساعات.".format(POST_INTERVAL_HOURS))
+    logger.info(f"Bot running! Posts every {POST_INTERVAL_HOURS} hours.")
 
-    # إبقاء البرنامج شغال (بدون polling)
     try:
         while True:
-            await asyncio.sleep(3600)  # ينام ساعة ويصحى يتأكد
+            await asyncio.sleep(3600)
     except KeyboardInterrupt:
-        logger.info("🛑 تم إيقاف البوت")
+        logger.info("Bot stopped")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("🛑 تم إيقاف البوت")
+        logger.info("Bot stopped")
     except Exception as e:
-        logger.error(f"❌ خطأ: {e}")
+        logger.error(f"Error: {e}")
