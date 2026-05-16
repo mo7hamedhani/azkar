@@ -230,56 +230,46 @@
       "category": "تكبيرات"
     }
   ],
-  "videos": [
+  "images": [
     {
-      "title": "سورة الفاتحة - الشيخ مشاري العفاسي",
-      "url": "https://youtu.be/2DpOLL4Rj5o",
-      "duration": "1:15"
+      "url": "https://i.ibb.co/1fZzXyZ/ayah1.jpg",
+      "description": "آية الكرسي - تصميم إسلامي"
     },
     {
-      "title": "سورة البقرة كاملة - الشيخ عبد الباسط عبد الصمد",
-      "url": "https://youtu.be/1apX9z2Vf4U",
-      "duration": "1:58:20"
+      "url": "https://i.ibb.co/2vXxYyZ/ayah2.jpg",
+      "description": "سورة الفاتحة - تصميم إسلامي"
     },
     {
-      "title": "آية الكرسي - الشيخ السديس",
-      "url": "https://youtu.be/3QZ8g8v8Zz8",
-      "duration": "2:30"
+      "url": "https://i.ibb.co/3wWwZzZ/ayah3.jpg",
+      "description": "سورة الإخلاص - تصميم إسلامي"
     },
     {
-      "title": "سورة يس - الشيخ ماهر المعيقلي",
-      "url": "https://youtu.be/4Rz8Z8ZzZz8",
-      "duration": "12:45"
+      "url": "https://i.ibb.co/4xXxAaA/ayah4.jpg",
+      "description": "آية من سورة البقرة - تصميم إسلامي"
     },
     {
-      "title": "سورة الرحمن - الشيخ ياسر الدوسري",
-      "url": "https://youtu.be/5Sz9Z9ZzZz9",
-      "duration": "18:30"
+      "url": "https://i.ibb.co/5yYyBbB/ayah5.jpg",
+      "description": "آية من سورة يس - تصميم إسلامي"
     },
     {
-      "title": "سورة الواقعة - الشيخ مشاري العفاسي",
-      "url": "https://youtu.be/6Tz0T0T0T0T",
-      "duration": "10:15"
+      "url": "https://i.ibb.co/6zZzCcC/ayah6.jpg",
+      "description": "آية من سورة الرحمن - تصميم إسلامي"
     },
     {
-      "title": "سورة الملك - الشيخ فارس عباد",
-      "url": "https://youtu.be/7Uu1U1U1U1U",
-      "duration": "8:45"
+      "url": "https://i.ibb.co/7aAaDdD/ayah7.jpg",
+      "description": "آية من سورة الواقعة - تصميم إسلامي"
     },
     {
-      "title": "سورة الكهف - الشيخ ناصر القطامي",
-      "url": "https://youtu.be/8Vv2V2V2V2V",
-      "duration": "22:10"
+      "url": "https://i.ibb.co/8bBbEeE/ayah8.jpg",
+      "description": "آية من سورة الملك - تصميم إسلامي"
     },
     {
-      "title": "تجويد سورة الإخلاص - الشيخ المنشاوي",
-      "url": "https://youtu.be/9Ww3W3W3W3W",
-      "duration": "1:00"
+      "url": "https://i.ibb.co/9cCcFfF/ayah9.jpg",
+      "description": "آية من سورة الكهف - تصميم إسلامي"
     },
     {
-      "title": "دعاء القنوت - الشيخ محمد جبريل",
-      "url": "https://youtu.be/0Xx4X4X4X4X",
-      "duration": "5:20"
+      "url": "https://i.ibb.co/0dDdGgG/ayah10.jpg",
+      "description": "آية من سورة الإسراء - تصميم إسلامي"
     }
   ]
 }
