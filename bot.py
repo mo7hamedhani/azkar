@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-بوت تليجرام لنشر محتوى ديني - بالعربي فقط
-Telegram Islamic Content Bot - Arabic Only
+بوت تليجرام لنشر محتوى ديني - فيديوهات + صور + نصوص
+Telegram Islamic Content Bot - Videos + Photos + Text
 """
 
 import os
@@ -12,9 +12,11 @@ import random
 import sqlite3
 import asyncio
 import json
+import requests
 from datetime import datetime, timedelta
+from io import BytesIO
 
-from telegram import Bot
+from telegram import Bot, InputFile
 from telegram.constants import ParseMode
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -77,17 +79,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== LOAD ARABIC CONTENT ====================
-def load_arabic_content():
-    """Load Arabic content from JSON file"""
+# ==================== LOAD CONTENT ====================
+def load_content():
     try:
         with open("content.json", "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         logger.error("content.json not found!")
-        return {"ayat": [], "ahadith": [], "athkar": [], "videos": []}
+        return {"ayat": [], "ahadith": [], "athkar": [], "videos": [], "images": []}
 
-ARABIC_CONTENT = load_arabic_content()
+CONTENT = load_content()
 
 # ==================== DATABASE ====================
 class Database:
@@ -99,15 +100,14 @@ class Database:
     def init_tables(self):
         c = self.conn.cursor()
 
-        tables = ["ayat", "ahadith", "athkar", "videos"]
+        tables = ["ayat", "ahadith", "athkar", "videos", "images"]
         for table in tables:
             c.execute(f"""
                 CREATE TABLE IF NOT EXISTS {table} (
                     id INTEGER PRIMARY KEY,
                     content TEXT NOT NULL,
-                    extra1 TEXT,
-                    extra2 TEXT,
-                    extra3 TEXT,
+                    media_type TEXT DEFAULT 'text',
+                    media_url TEXT,
                     posted INTEGER DEFAULT 0,
                     posted_date TEXT,
                     post_count INTEGER DEFAULT 0
@@ -136,34 +136,45 @@ class Database:
             logger.info("Database already has data")
             return
 
-        logger.info("Adding Arabic content...")
+        logger.info("Adding content...")
 
-        # Add Ayat
-        for i, item in enumerate(ARABIC_CONTENT["ayat"], 1):
+        # Add Ayat (text + image URL from Quran.com)
+        for i, item in enumerate(CONTENT.get("ayat", []), 1):
             content = json.dumps(item, ensure_ascii=False)
-            c.execute("INSERT INTO ayat (id, content, extra1, extra2, extra3) VALUES (?, ?, ?, ?, ?)",
-                      (i, content, item["surah"], str(item["ayah"]), item["tafsir"]))
+            # Generate image URL for ayah (Quran.com API)
+            image_url = f"https://cdn.islamic.network/quran/images/{item['surah']}_{item['ayah']}.png"
+            c.execute("INSERT INTO ayat (id, content, media_type, media_url) VALUES (?, ?, ?, ?)",
+                      (i, content, 'image', image_url))
 
-        # Add Ahadith
-        for i, item in enumerate(ARABIC_CONTENT["ahadith"], 1):
+        # Add Ahadith (text only)
+        for i, item in enumerate(CONTENT.get("ahadith", []), 1):
             content = json.dumps(item, ensure_ascii=False)
-            c.execute("INSERT INTO ahadith (id, content, extra1, extra2, extra3) VALUES (?, ?, ?, ?, ?)",
-                      (i, content, item["narrator"], item["source"], ""))
+            c.execute("INSERT INTO ahadith (id, content, media_type) VALUES (?, ?, ?)",
+                      (i, content, 'text'))
 
-        # Add Athkar
-        for i, item in enumerate(ARABIC_CONTENT["athkar"], 1):
+        # Add Athkar (text only)
+        for i, item in enumerate(CONTENT.get("athkar", []), 1):
             content = json.dumps(item, ensure_ascii=False)
-            c.execute("INSERT INTO athkar (id, content, extra1, extra2, extra3) VALUES (?, ?, ?, ?, ?)",
-                      (i, content, item["category"], "", ""))
+            c.execute("INSERT INTO athkar (id, content, media_type) VALUES (?, ?, ?)",
+                      (i, content, 'text'))
 
-        # Add Videos
-        for i, item in enumerate(ARABIC_CONTENT["videos"], 1):
+        # Add Videos (short videos < 50MB)
+        for i, item in enumerate(CONTENT.get("videos", []), 1):
             content = json.dumps(item, ensure_ascii=False)
-            c.execute("INSERT INTO videos (id, content, extra1, extra2, extra3) VALUES (?, ?, ?, ?, ?)",
-                      (i, content, item["title"], item["url"], item["duration"]))
+            # Check if it's a file_id or URL
+            media_type = 'video_file' if item.get('file_id') else 'video_url'
+            media_url = item.get('file_id', item.get('url', ''))
+            c.execute("INSERT INTO videos (id, content, media_type, media_url) VALUES (?, ?, ?, ?)",
+                      (i, content, media_type, media_url))
+
+        # Add Images
+        for i, item in enumerate(CONTENT.get("images", []), 1):
+            content = json.dumps(item, ensure_ascii=False)
+            c.execute("INSERT INTO images (id, content, media_type, media_url) VALUES (?, ?, ?, ?)",
+                      (i, content, 'image', item.get('url', '')))
 
         self.conn.commit()
-        logger.info(f"Added {len(ARABIC_CONTENT['ayat'])} ayat, {len(ARABIC_CONTENT['ahadith'])} hadith, {len(ARABIC_CONTENT['athkar'])} athkar, {len(ARABIC_CONTENT['videos'])} videos")
+        logger.info("Content added successfully")
 
     def get_unposted(self, table_name):
         c = self.conn.cursor()
@@ -188,7 +199,7 @@ class Database:
     def get_stats(self):
         c = self.conn.cursor()
         stats = {}
-        for table in ["ayat", "ahadith", "athkar", "videos"]:
+        for table in ["ayat", "ahadith", "athkar", "videos", "images"]:
             c.execute(f"SELECT COUNT(*) FROM {table}")
             total = c.fetchone()[0]
             c.execute(f"SELECT COUNT(*) FROM {table} WHERE posted = 1")
@@ -201,10 +212,13 @@ class SmartPicker:
     def __init__(self, db):
         self.db = db
         self.recent_types = []
-        self.max_history = 4
+        self.max_history = 5
 
     def pick_content(self):
-        content_types = ["ayat", "ahadith", "athkar", "videos"]
+        # Prioritize: videos > images > ayat > ahadith > athkar
+        content_types = ["videos", "images", "ayat", "ahadith", "athkar"]
+
+        # Don't repeat same type in last 2 posts
         available = [t for t in content_types if t not in self.recent_types[-2:]]
         if not available:
             available = content_types
@@ -221,6 +235,7 @@ class SmartPicker:
                 self.recent_types.pop(0)
             return chosen, content
 
+        # Try any available content
         for t in content_types:
             self.db.reset_table(t)
             content = self.db.get_unposted(t)
@@ -231,9 +246,9 @@ class SmartPicker:
         return None, None
 
 # ==================== MESSAGE FORMATTING ====================
-def format_content(content_type, content_row):
-    """Format content for Telegram - Arabic only"""
-    _, content_json, extra1, extra2, extra3, _, _, _ = content_row
+def format_caption(content_type, content_row):
+    """Format caption for media posts"""
+    _, content_json, media_type, media_url, _, _, _ = content_row
     item = json.loads(content_json)
 
     if content_type == "ayat":
@@ -244,7 +259,7 @@ def format_content(content_type, content_row):
 📍 <i>{item['surah']} - الآية {item['ayah']}</i>
 📝 <i>{item['tafsir']}</i>
 
-#آيات #قرآن #تدبر #آية_اليوم"""
+#آيات #قرآن #تدبر"""
 
     elif content_type == "ahadith":
         return f"""🌟 <b>حديث شريف</b>
@@ -254,7 +269,7 @@ def format_content(content_type, content_row):
 📚 رواه: <i>{item['narrator']}</i>
 📖 المصدر: <i>{item['source']}</i>
 
-#أحاديث #سنة #نبوية #حديث_اليوم"""
+#أحاديث #سنة #نبوية"""
 
     elif content_type == "athkar":
         return f"""🤲 <b>ذكر طيب</b>
@@ -263,7 +278,7 @@ def format_content(content_type, content_row):
 
 📍 <i>التصنيف: {item['category']}</i>
 
-#أذكار #أدعية #ذكر_الله #ذكر_اليوم"""
+#أذكار #أدعية #ذكر_الله"""
 
     elif content_type == "videos":
         return f"""🎥 <b>تلاوة قرآنية</b>
@@ -271,9 +286,14 @@ def format_content(content_type, content_row):
 📌 {item['title']}
 ⏱️ المدة: {item['duration']}
 
-🔗 <a href="{item['url']}">اضغط هنا للمشاهدة</a>
+#قرآن #تلاوة #فيديو"""
 
-#قرآن #تلاوة #فيديو #تلاوة_اليوم"""
+    elif content_type == "images":
+        return f"""📸 <b>صورة دينية</b>
+
+{item.get('description', '')}
+
+#إسلامي #صورة #تذكير"""
 
     return ""
 
@@ -284,25 +304,71 @@ async def send_post(bot, db, picker):
         logger.error("No content available!")
         return False
 
-    message = format_content(content_type, content)
+    content_id, content_json, media_type, media_url, _, _, _ = content
+    item = json.loads(content_json)
+    caption = format_caption(content_type, content)
 
     try:
-        if content_type == "videos":
+        if content_type == "videos" and media_type == "video_file" and media_url:
+            # Send video using file_id (uploaded to Telegram before)
+            await bot.send_video(
+                chat_id=CHANNEL_ID,
+                video=media_url,  # file_id
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                supports_streaming=True
+            )
+            logger.info(f"Sent video file: {content_type} (ID: {content_id})")
+
+        elif content_type == "videos" and media_type == "video_url":
+            # For YouTube URLs, send as text with link preview
             await bot.send_message(
                 chat_id=CHANNEL_ID,
-                text=message,
+                text=caption + f"\n\n🔗 {media_url}",
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=False
             )
+            logger.info(f"Sent video URL: {content_type} (ID: {content_id})")
+
+        elif content_type in ["ayat", "images"] and media_url:
+            # Try to send image from URL
+            try:
+                response = requests.get(media_url, timeout=10)
+                if response.status_code == 200:
+                    photo = BytesIO(response.content)
+                    await bot.send_photo(
+                        chat_id=CHANNEL_ID,
+                        photo=photo,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Sent image: {content_type} (ID: {content_id})")
+                else:
+                    # Fallback to text
+                    await bot.send_message(
+                        chat_id=CHANNEL_ID,
+                        text=caption,
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Sent text (image failed): {content_type} (ID: {content_id})")
+            except Exception as img_error:
+                logger.warning(f"Image failed: {img_error}, sending text instead")
+                await bot.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=caption,
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Sent text fallback: {content_type} (ID: {content_id})")
         else:
+            # Text only
             await bot.send_message(
                 chat_id=CHANNEL_ID,
-                text=message,
+                text=caption,
                 parse_mode=ParseMode.HTML
             )
+            logger.info(f"Sent text: {content_type} (ID: {content_id})")
 
-        db.mark_posted(content_type, content[0])
-        logger.info(f"Posted: {content_type} (ID: {content[0]})")
+        db.mark_posted(content_type, content_id)
         return True
 
     except Exception as e:
@@ -337,7 +403,7 @@ def setup_scheduler(bot, db, picker):
 
 # ==================== MAIN ====================
 async def main():
-    logger.info("Starting Islamic Channel Bot - Arabic Only...")
+    logger.info("Starting Islamic Channel Bot - Videos + Photos + Text...")
 
     if not BOT_TOKEN or not CHANNEL_ID:
         logger.error("Please set BOT_TOKEN and CHANNEL_ID")
