@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 بوت تليجرام لنشر محتوى ديني - صور فقط + لوحة تحكم
-Telegram Islamic Content Bot - Images Only + Admin Dashboard
 """
 
 import os
@@ -145,26 +144,22 @@ class Database:
 
         logger.info("Adding content...")
 
-        # Add Ayat (text + image URL)
         for i, item in enumerate(CONTENT.get("ayat", []), 1):
             content = json.dumps(item, ensure_ascii=False)
             image_url = f"https://cdn.islamic.network/quran/images/{item['surah']}_{item['ayah']}.png"
             c.execute("INSERT INTO ayat (id, content, media_type, media_url) VALUES (?, ?, ?, ?)",
                       (i, content, 'image', image_url))
 
-        # Add Ahadith (text only)
         for i, item in enumerate(CONTENT.get("ahadith", []), 1):
             content = json.dumps(item, ensure_ascii=False)
             c.execute("INSERT INTO ahadith (id, content, media_type) VALUES (?, ?, ?)",
                       (i, content, 'text'))
 
-        # Add Athkar (text only)
         for i, item in enumerate(CONTENT.get("athkar", []), 1):
             content = json.dumps(item, ensure_ascii=False)
             c.execute("INSERT INTO athkar (id, content, media_type) VALUES (?, ?, ?)",
                       (i, content, 'text'))
 
-        # Add Images
         for i, item in enumerate(CONTENT.get("images", []), 1):
             content = json.dumps(item, ensure_ascii=False)
             c.execute("INSERT INTO images (id, content, media_type, media_url) VALUES (?, ?, ?, ?)",
@@ -319,7 +314,6 @@ async def send_post(bot, db, picker, specific_type=None):
 
     try:
         if content_type in ["ayat", "images"] and media_url:
-            # Send image
             try:
                 response = requests.get(media_url, timeout=10)
                 if response.status_code == 200:
@@ -339,7 +333,6 @@ async def send_post(bot, db, picker, specific_type=None):
                 await bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.HTML)
                 logger.info(f"Sent text fallback: {content_type} (ID: {content_id})")
         else:
-            # Text only
             await bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.HTML)
             logger.info(f"Sent text: {content_type} (ID: {content_id})")
 
@@ -355,7 +348,6 @@ def is_admin(user_id):
     return user_id == ADMIN_ID
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Main admin dashboard"""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ هذا البوت خاص بالأدمن فقط.")
@@ -381,7 +373,6 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button clicks"""
     query = update.callback_query
     await query.answer()
 
@@ -394,7 +385,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "stats":
         stats = db.get_stats()
-
         msg = "📊 <b>إحصائيات المحتوى</b>\n\n"
         emojis = {"ayat": "📖", "ahadith": "🌟", "athkar": "🤲", "images": "📸"}
 
@@ -404,7 +394,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     elif query.data == "post_now":
@@ -417,12 +406,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            "📝 <b>اختر نوع المنشور:</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
-        )
+        await query.edit_message_text("📝 <b>اختر نوع المنشور:</b>", parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     elif query.data.startswith("post_"):
         post_type = query.data.replace("post_", "")
@@ -436,19 +420,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             success = await send_post(bot, db, picker, specific_type=post_type)
 
-        if success:
-            msg = f"✅ تم النشر بنجاح! ({post_type})"
-        else:
-            msg = "❌ فشل النشر."
-
+        msg = f"✅ تم النشر بنجاح! ({post_type})" if success else "❌ فشل النشر."
         keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(msg, reply_markup=reply_markup)
 
     elif query.data == "logs":
         posts = db.get_recent_posts(10)
-
         msg = "📋 <b>آخر 10 منشورات</b>\n\n"
         emojis = {"ayat": "📖", "ahadith": "🌟", "athkar": "🤲", "images": "📸"}
 
@@ -459,7 +437,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     elif query.data == "reset":
@@ -468,13 +445,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("❌ إلغاء", callback_data="back_to_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            "⚠️ <b>هل تريد إعادة تعيين كل المحتوى؟</b>\n\n"
-            "هذا سيجعل البوت ينشر من البداية مرة أخرى.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
-        )
+        await query.edit_message_text("⚠️ <b>هل تريد إعادة تعيين كل المحتوى؟</b>", parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     elif query.data == "reset_confirm":
         for table in ["ayat", "ahadith", "athkar", "images"]:
@@ -482,12 +453,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            "🔄 <b>تم إعادة تعيين كل المحتوى!</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
-        )
+        await query.edit_message_text("🔄 <b>تم إعادة تعيين كل المحتوى!</b>", parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     elif query.data == "settings":
         keyboard = [
@@ -496,14 +462,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(
-            "⚙️ <b>الإعدادات الحالية:</b>\n\n"
+            f"⚙️ <b>الإعدادات:</b>\n\n"
             f"⏱️ الفترة: كل {POST_INTERVAL_HOURS} ساعات\n"
-            f"🕐 أوقات محددة: {'مفعل' if POST_AT_SPECIFIC_TIMES else 'معطل'}\n"
-            f"📊 المحتوى: {sum(db.get_stats()[t]['total'] for t in db.get_stats())} عنصر",
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
+            f"🕐 أوقات محددة: {'مفعل' if POST_AT_SPECIFIC_TIMES else 'معطل'}",
+            parse_mode=ParseMode.HTML, reply_markup=reply_markup
         )
 
     elif query.data == "toggle":
@@ -512,36 +475,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.set_setting("bot_active", new_value)
 
         status = "🟢 <b>مفعل</b>" if new_value == "true" else "🔴 <b>معطل</b>"
-
         keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(
             f"⏯️ <b>حالة البوت:</b> {status}\n\n"
             f"النشر التلقائي {'مفعل' if new_value == 'true' else 'معطل'} الآن.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
+            parse_mode=ParseMode.HTML, reply_markup=reply_markup
         )
 
     elif query.data == "help":
         keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(
             "📖 <b>دليل استخدام البوت</b>\n\n"
-            "<b>الأوامر:</b>\n"
             "/admin - لوحة التحكم\n"
             "/post - نشر فوري\n"
             "/stats - إحصائيات\n"
             "/logs - سجل المنشورات\n"
             "/reset - إعادة تعيين\n\n"
-            "<b>ملاحظات:</b>\n"
             f"• البوت ينشر كل {POST_INTERVAL_HOURS} ساعات\n"
             "• المحتوى: صور + آيات + أحاديث + أذكار\n"
-            "• لا يتكرر حتى ينتهي كل المحتوى\n"
-            "• التحكم الكامل من لوحة الأدمن",
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
+            "• لا يتكرر حتى ينتهي كل المحتوى",
+            parse_mode=ParseMode.HTML, reply_markup=reply_markup
         )
 
     elif query.data == "back_to_menu":
@@ -555,17 +510,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("❓ المساعدة", callback_data="help")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(
             "👋 <b>لوحة تحكم البوت</b>\n\n"
             "اختر الإجراء المطلوب:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
+            parse_mode=ParseMode.HTML, reply_markup=reply_markup
         )
 
 # ==================== SIMPLE COMMANDS ====================
 async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Quick post command"""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ غير مصرح.")
@@ -585,7 +537,6 @@ async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ فشل النشر.")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Quick stats command"""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ غير مصرح.")
@@ -604,7 +555,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Quick logs command"""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ غير مصرح.")
@@ -624,7 +574,6 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Quick reset command"""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ غير مصرح.")
@@ -663,7 +612,6 @@ def setup_scheduler(bot, db, picker):
     return scheduler
 
 async def send_scheduled_post(bot, db, picker):
-    """Check if bot is active before posting"""
     is_active = db.get_setting("bot_active", "true")
     if is_active != "true":
         logger.info("Bot is paused, skipping scheduled post")
@@ -682,6 +630,7 @@ async def main():
     db = Database()
     picker = SmartPicker(db)
 
+    # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     bot = application.bot
 
@@ -706,8 +655,21 @@ async def main():
     logger.info(f"Bot running! Posts every {POST_INTERVAL_HOURS} hours.")
     logger.info("Admin dashboard: /admin")
 
-    # Start bot
-    await application.run_polling()
+    # Start application
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+
+    # Keep running
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except KeyboardInterrupt:
+        logger.info("Bot stopped")
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == "__main__":
     try:
